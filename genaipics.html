@@ -1,0 +1,508 @@
+import React, { useState, useEffect, useRef } from 'react';
+
+// Main App component
+function App() {
+    // State variables for various UI elements and data
+    const [prompt, setPrompt] = useState(''); // User input prompt
+    const [selectedStyle, setSelectedStyle] = useState('🌸 日本動漫風'); // Selected art style
+    const [batchQuantity, setBatchQuantity] = useState(1); // Number of images to generate in a batch
+    const [selectedWidth, setSelectedWidth] = useState(1024); // Image width
+    const [selectedHeight, setSelectedHeight] = useState(1024); // Image height
+    const [generatedImages, setGeneratedImages] = useState([]); // Currently generated images
+    const [historyImages, setHistoryImages] = useState([]); // History of all generated images
+    const [loading, setLoading] = useState(false); // Loading state for image generation
+    const [notification, setNotification] = useState(null); // Notification message and type
+    const historyRef = useRef(null); // Ref for scrolling to history
+
+    // Predefined art styles and their corresponding English prompts for the API
+    const artStyles = {
+        '🌸 日本動漫風': 'anime style',
+        '🌿 吉卜力工作室': 'ghibli studio style',
+        '🎪 卡通風格': 'cartoon style',
+        '🖌️ 水彩畫': 'watercolor painting',
+        '🎨 油畫風格': 'oil painting',
+        '💻 數位藝術': 'digital art',
+        '📷 寫實風格': 'realistic photo',
+        '✏️ 黑白素描': 'black and white sketch',
+        '🖍️ 色鉛筆': 'color pencil drawing',
+        '🌃 賽博朋克': 'cyberpunk style',
+        '📼 復古風格': 'retro vintage style',
+    };
+
+    // Predefined image sizes
+    const imageSizes = {
+        '⬜ 1024×1024': { width: 1024, height: 1024 },
+        '🖥️ 1920×1080': { width: 1920, height: 1080 },
+        '📱 1080×1920': { width: 1080, height: 1920 },
+        '📄 512×768': { width: 512, height: 768 },
+    };
+
+    // Load history from local storage on component mount
+    useEffect(() => {
+        try {
+            const storedHistory = localStorage.getItem('imageGeneratorHistory');
+            if (storedHistory) {
+                setHistoryImages(JSON.parse(storedHistory));
+            }
+        } catch (error) {
+            console.error("Failed to load history from local storage:", error);
+            showNotification('載入歷史記錄失敗', 'error');
+        }
+    }, []);
+
+    // Save history to local storage whenever historyImages changes
+    useEffect(() => {
+        try {
+            localStorage.setItem('imageGeneratorHistory', JSON.stringify(historyImages));
+        } catch (error) {
+            console.error("Failed to save history to local storage:", error);
+            showNotification('儲存歷史記錄失敗', 'error');
+        }
+    }, [historyImages]);
+
+    // Function to display notifications
+    const showNotification = (message, type) => {
+        setNotification({ message, type });
+        const timer = setTimeout(() => {
+            setNotification(null);
+        }, 3000); // Notification disappears after 3 seconds
+        return () => clearTimeout(timer); // Cleanup timer on unmount or re-render
+    };
+
+    // Function to handle image generation
+    const handleGenerateImages = async () => {
+        if (!prompt.trim()) {
+            showNotification('請輸入提示詞', 'error');
+            return;
+        }
+
+        setLoading(true);
+        setGeneratedImages([]); // Clear previous generated images
+        const newGenerated = [];
+        const stylePrompt = artStyles[selectedStyle] || ''; // Get English style prompt
+
+        try {
+            for (let i = 0; i < batchQuantity; i++) {
+                const seed = Math.floor(Math.random() * 1000000); // Generate a random seed
+                const encodedPrompt = encodeURIComponent(`${prompt}, ${stylePrompt}`);
+                const apiUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=${selectedWidth}&height=${selectedHeight}&seed=${seed}&model=flux&nologo=true`;
+
+                // Fetch image (Pollinations.ai directly returns the image, so we can use it as src)
+                const imageUrl = apiUrl; // The URL itself is the image source
+
+                const imageData = {
+                    url: imageUrl,
+                    originalPrompt: prompt,
+                    style: selectedStyle,
+                    width: selectedWidth,
+                    height: selectedHeight,
+                    seed: seed,
+                    timestamp: new Date().toISOString(),
+                };
+                newGenerated.push(imageData);
+            }
+
+            setGeneratedImages(newGenerated);
+            setHistoryImages(prevHistory => [...newGenerated, ...prevHistory]); // Add new images to history
+            showNotification('圖像生成成功！', 'success');
+
+            // Scroll to history after generation
+            setTimeout(() => {
+                historyRef.current?.scrollIntoView({ behavior: 'smooth' });
+            }, 100);
+
+        } catch (error) {
+            console.error('圖像生成失敗:', error);
+            showNotification('圖像生成失敗，請稍後再試。', 'error');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // Function to handle random prompt inspiration
+    const handleRandomInspiration = () => {
+        const inspirations = [
+            'A futuristic city at sunset, neon lights, flying cars',
+            'Enchanted forest with glowing mushrooms and mystical creatures',
+            'Astronaut floating in space, looking at a distant galaxy',
+            'Cozy cabin in a snowy mountain landscape, warm light from windows',
+            'Underwater world with vibrant coral reefs and exotic fish',
+            'Ancient dragon soaring over a medieval castle',
+            'Steampunk airship flying over a Victorian city',
+            'Robot playing chess with a human, futuristic setting',
+            'Magical library filled with ancient scrolls and floating books',
+            'A serene Japanese garden with cherry blossoms and a koi pond',
+        ];
+        const randomPrompt = inspirations[Math.floor(Math.random() * inspirations.length)];
+        setPrompt(randomPrompt);
+        showNotification('隨機靈感已填充！', 'info');
+    };
+
+    // Function to clear the prompt
+    const handleClearPrompt = () => {
+        setPrompt('');
+        showNotification('提示詞已清空', 'info');
+    };
+
+    // Function to beautify the description using Gemini API
+    const handleBeautifyDescription = async () => {
+        if (!prompt.trim()) {
+            showNotification('請先輸入提示詞才能美化', 'error');
+            return;
+        }
+
+        setLoading(true);
+        try {
+            const chatHistory = [];
+            chatHistory.push({ role: "user", parts: [{ text: `Enhance the following image generation prompt, making it more descriptive and artistic, suitable for an AI image generator. Keep it concise, around 20-30 words: '${prompt}'` }] });
+            const payload = { contents: chatHistory };
+            const apiKey = ""; // Canvas will provide this key at runtime
+            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+
+            const response = await fetch(apiUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            const result = await response.json();
+            if (result.candidates && result.candidates.length > 0 &&
+                result.candidates[0].content && result.candidates[0].content.parts &&
+                result.candidates[0].content.parts.length > 0) {
+                const enhancedText = result.candidates[0].content.parts[0].text;
+                setPrompt(enhancedText);
+                showNotification('提示詞已美化！', 'success');
+            } else {
+                showNotification('美化失敗：無法取得回應', 'error');
+            }
+        } catch (error) {
+            console.error('美化提示詞失敗:', error);
+            showNotification('美化提示詞失敗，請檢查網絡或稍後再試。', 'error');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // Function to handle image download
+    const handleDownloadImage = (url, filename) => {
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = filename || 'generated_image.png';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        showNotification('圖像已下載！', 'success');
+    };
+
+    // Function to handle clearing history
+    const handleClearHistory = () => {
+        if (window.confirm('確定要清空所有歷史記錄嗎？此操作無法撤銷。')) {
+            setHistoryImages([]);
+            showNotification('歷史記錄已清空', 'info');
+        }
+    };
+
+    return (
+        <div className="min-h-screen flex flex-col items-center justify-center p-4 text-gray-200 custom-scrollbar">
+            {/* Custom CSS for gradients, blur, neon effects, and scrollbar */}
+            <style>
+                {`
+                body {
+                    background: linear-gradient(to bottom right, #0A0A2A, #2A0A4A);
+                    font-family: 'Inter', sans-serif;
+                }
+                .app-container {
+                    backdrop-filter: blur(10px);
+                    background-color: rgba(0, 0, 0, 0.4);
+                    border-radius: 20px;
+                    box-shadow: 0 0 30px rgba(0, 240, 255, 0.3), 0 0 60px rgba(255, 0, 255, 0.2);
+                    animation: glow 1.5s infinite alternate;
+                }
+                @keyframes glow {
+                    from { box-shadow: 0 0 20px rgba(0, 240, 255, 0.3), 0 0 40px rgba(255, 0, 255, 0.2); }
+                    to { box-shadow: 0 0 30px rgba(0, 240, 255, 0.5), 0 0 70px rgba(255, 0, 255, 0.4); }
+                }
+                .neon-button {
+                    background: linear-gradient(to right, #00F0FF, #FF00FF);
+                    transition: all 0.3s ease;
+                    box-shadow: 0 0 10px rgba(0, 240, 255, 0.5), 0 0 20px rgba(255, 0, 255, 0.5);
+                }
+                .neon-button:hover {
+                    transform: translateY(-2px);
+                    box-shadow: 0 0 15px rgba(0, 240, 255, 0.8), 0 0 30px rgba(255, 0, 255, 0.8);
+                }
+                .input-field {
+                    background-color: rgba(0, 0, 0, 0.6);
+                    border: 1px solid rgba(0, 240, 255, 0.3);
+                    color: #E0E0E0;
+                    border-radius: 8px;
+                    transition: border-color 0.3s ease;
+                }
+                .input-field:focus {
+                    border-color: #00F0FF;
+                    box-shadow: 0 0 8px rgba(0, 240, 255, 0.5);
+                    outline: none;
+                }
+                .image-card {
+                    background-color: rgba(0, 0, 0, 0.5);
+                    border: 1px solid rgba(0, 240, 255, 0.2);
+                    transition: all 0.3s ease;
+                }
+                .image-card:hover {
+                    transform: translateY(-5px);
+                    box-shadow: 0 0 15px rgba(0, 240, 255, 0.6), 0 0 30px rgba(255, 0, 255, 0.4);
+                }
+                .history-section {
+                    background: linear-gradient(to bottom, rgba(0, 0, 0, 0.5), rgba(0, 0, 0, 0.7));
+                    border-radius: 20px;
+                    border: 1px solid rgba(0, 240, 255, 0.3);
+                }
+                .custom-scrollbar::-webkit-scrollbar {
+                    width: 12px;
+                }
+                .custom-scrollbar::-webkit-scrollbar-track {
+                    background: rgba(0, 0, 0, 0.3);
+                    border-radius: 10px;
+                }
+                .custom-scrollbar::-webkit-scrollbar-thumb {
+                    background: linear-gradient(to bottom, #00F0FF, #FF00FF);
+                    border-radius: 10px;
+                    border: 3px solid rgba(0, 0, 0, 0.3);
+                }
+                .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+                    background: linear-gradient(to bottom, #00FFFF, #FF00FF);
+                }
+                .notification {
+                    background: linear-gradient(to right, #00F0FF, #FF00FF);
+                    color: white;
+                    border-radius: 8px;
+                    box-shadow: 0 4px 15px rgba(0, 240, 255, 0.4);
+                }
+                .notification.error {
+                    background: linear-gradient(to right, #FF416C, #FF4B2B);
+                    box-shadow: 0 4px 15px rgba(255, 65, 108, 0.4);
+                }
+                .notification.info {
+                    background: linear-gradient(to right, #4CAF50, #8BC34A);
+                    box-shadow: 0 4px 15px rgba(76, 175, 80, 0.4);
+                }
+                `}
+            </style>
+
+            {/* Notification system */}
+            {notification && (
+                <div className={`notification fixed top-4 right-4 p-4 z-50 animate-fade-in-down ${notification.type}`}>
+                    {notification.message}
+                </div>
+            )}
+
+            {/* Main application container */}
+            <div className="app-container w-full max-w-4xl p-8 space-y-8 my-8 custom-scrollbar overflow-y-auto">
+                {/* Header */}
+                <h1 className="text-5xl font-extrabold text-center mb-8 bg-clip-text text-transparent bg-gradient-to-r from-cyan-400 to-fuchsia-500 drop-shadow-lg">
+                    AI 圖像生成器
+                </h1>
+
+                {/* Input and controls section */}
+                <div className="space-y-6">
+                    {/* Prompt input */}
+                    <div>
+                        <label htmlFor="prompt" className="block text-xl font-semibold mb-2">提示詞:</label>
+                        <textarea
+                            id="prompt"
+                            className="input-field w-full p-3 h-32 resize-y rounded-lg shadow-inner"
+                            value={prompt}
+                            onChange={(e) => setPrompt(e.target.value)}
+                            placeholder="輸入您的圖像描述，例如：一隻可愛的貓在太空船裡"
+                        ></textarea>
+                    </div>
+
+                    {/* Prompt assistance buttons */}
+                    <div className="flex flex-wrap gap-4 justify-center">
+                        <button
+                            onClick={handleRandomInspiration}
+                            className="neon-button px-6 py-3 rounded-full text-lg font-bold hover:scale-105 transition-transform"
+                        >
+                            🎲 隨機靈感
+                        </button>
+                        <button
+                            onClick={handleClearPrompt}
+                            className="neon-button px-6 py-3 rounded-full text-lg font-bold hover:scale-105 transition-transform"
+                        >
+                            🗑️ 清空
+                        </button>
+                        <button
+                            onClick={handleBeautifyDescription}
+                            className="neon-button px-6 py-3 rounded-full text-lg font-bold hover:scale-105 transition-transform"
+                            disabled={loading}
+                        >
+                            ✨ 美化描述
+                        </button>
+                    </div>
+
+                    {/* Style and quantity selection */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        {/* Art Style Dropdown */}
+                        <div>
+                            <label htmlFor="style" className="block text-xl font-semibold mb-2">藝術風格:</label>
+                            <select
+                                id="style"
+                                className="input-field w-full p-3 rounded-lg shadow-inner appearance-none"
+                                value={selectedStyle}
+                                onChange={(e) => setSelectedStyle(e.target.value)}
+                            >
+                                {Object.keys(artStyles).map((style) => (
+                                    <option key={style} value={style}>{style}</option>
+                                ))}
+                            </select>
+                        </div>
+
+                        {/* Batch Quantity Input */}
+                        <div>
+                            <label htmlFor="quantity" className="block text-xl font-semibold mb-2">批量生成數量:</label>
+                            <input
+                                type="number"
+                                id="quantity"
+                                className="input-field w-full p-3 rounded-lg shadow-inner"
+                                value={batchQuantity}
+                                onChange={(e) => setBatchQuantity(Math.max(1, parseInt(e.target.value) || 1))}
+                                min="1"
+                                max="10" // Limit batch quantity to prevent excessive API calls
+                            />
+                        </div>
+                    </div>
+
+                    {/* Image Size Dropdown */}
+                    <div>
+                        <label htmlFor="size" className="block text-xl font-semibold mb-2">快速尺寸定義:</label>
+                        <select
+                            id="size"
+                            className="input-field w-full p-3 rounded-lg shadow-inner appearance-none"
+                            value={`${selectedWidth}×${selectedHeight}`}
+                            onChange={(e) => {
+                                const [width, height] = e.target.value.split('×').map(Number);
+                                setSelectedWidth(width);
+                                setSelectedHeight(height);
+                            }}
+                        >
+                            {Object.entries(imageSizes).map(([label, dims]) => (
+                                <option key={label} value={`${dims.width}×${dims.height}`}>{label}</option>
+                            ))}
+                        </select>
+                    </div>
+
+                    {/* Generate Button */}
+                    <button
+                        onClick={handleGenerateImages}
+                        className="neon-button w-full py-4 rounded-full text-2xl font-extrabold mt-8 hover:scale-105 transition-transform"
+                        disabled={loading}
+                    >
+                        {loading ? (
+                            <div className="flex items-center justify-center">
+                                <svg className="animate-spin h-7 w-7 mr-3 text-white" viewBox="0 0 24 24">
+                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                </svg>
+                                生成中...
+                            </div>
+                        ) : (
+                            '生成圖像'
+                        )}
+                    </button>
+                </div>
+
+                {/* Generated Images Preview */}
+                {generatedImages.length > 0 && (
+                    <div className="mt-12">
+                        <h2 className="text-4xl font-bold text-center mb-6 bg-clip-text text-transparent bg-gradient-to-r from-green-400 to-blue-500 drop-shadow-lg">
+                            批量預覽圖像
+                        </h2>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                            {generatedImages.map((img, index) => (
+                                <ImageCard key={index} image={img} onDownload={handleDownloadImage} />
+                            ))}
+                        </div>
+                    </div>
+                )}
+
+                {/* History Section */}
+                <div ref={historyRef} className="history-section mt-16 p-6 rounded-2xl shadow-xl">
+                    <div className="flex justify-between items-center mb-6">
+                        <h2 className="text-4xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-purple-400 to-pink-500 drop-shadow-lg">
+                            歷史圖像下載與預覽紀錄
+                        </h2>
+                        {historyImages.length > 0 && (
+                            <button
+                                onClick={handleClearHistory}
+                                className="px-4 py-2 rounded-full text-sm font-semibold bg-red-600 hover:bg-red-700 transition-colors shadow-md"
+                            >
+                                清空歷史
+                            </button>
+                        )}
+                    </div>
+                    {historyImages.length === 0 ? (
+                        <p className="text-center text-gray-400 text-lg">尚無歷史圖像。</p>
+                    ) : (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 custom-scrollbar max-h-96 overflow-y-auto">
+                            {historyImages.map((img, index) => (
+                                <ImageCard key={index} image={img} onDownload={handleDownloadImage} />
+                            ))}
+                        </div>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+}
+
+// Image Card component for displaying individual images
+const ImageCard = ({ image, onDownload }) => {
+    const [showModal, setShowModal] = useState(false);
+
+    return (
+        <div className="image-card rounded-xl overflow-hidden shadow-lg hover:shadow-2xl transition-all duration-300">
+            <img
+                src={image.url}
+                alt={image.originalPrompt}
+                className="w-full h-48 object-cover cursor-pointer"
+                onClick={() => setShowModal(true)}
+                onError={(e) => { e.target.onerror = null; e.target.src = "https://placehold.co/400x300/333333/FFFFFF?text=Image+Load+Error"; }}
+            />
+            <div className="p-4">
+                <p className="text-sm text-gray-300 mb-1 truncate">提示詞: {image.originalPrompt}</p>
+                <p className="text-sm text-gray-400 mb-2">風格: {image.style}</p>
+                <button
+                    onClick={() => onDownload(image.url, `AI_Image_${image.timestamp}.png`)}
+                    className="w-full neon-button px-4 py-2 rounded-lg text-sm font-bold hover:scale-105 transition-transform"
+                >
+                    下載圖像
+                </button>
+            </div>
+
+            {/* Image Preview Modal */}
+            {showModal && (
+                <div
+                    className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4"
+                    onClick={() => setShowModal(false)}
+                >
+                    <div className="relative max-w-full max-h-full" onClick={(e) => e.stopPropagation()}>
+                        <img
+                            src={image.url}
+                            alt={image.originalPrompt}
+                            className="max-w-full max-h-screen object-contain rounded-lg shadow-xl"
+                            onError={(e) => { e.target.onerror = null; e.target.src = "https://placehold.co/800x600/333333/FFFFFF?text=Image+Load+Error"; }}
+                        />
+                        <button
+                            className="absolute top-4 right-4 text-white text-3xl hover:text-gray-300"
+                            onClick={() => setShowModal(false)}
+                        >
+                            &times;
+                        </button>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+};
+
+export default App;
